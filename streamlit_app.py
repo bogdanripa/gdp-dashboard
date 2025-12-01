@@ -20,7 +20,8 @@ DEFAULT_PROMPTS = [
     {
         "label": "Generate brand data",
         "text": (
-            "Generate a brand URL and description for a given brand.\n\n"
+            "Generate a brand URL and description for a given brand.\n"
+            "This is a real brand, so please go online and do some research before answering.\n\n"
             "Brand name: {brand}\n"
             "Return a JSON object:```json\n"
             "{\n"
