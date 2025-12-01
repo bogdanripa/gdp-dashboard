@@ -291,7 +291,7 @@ def generate_brand_data(brand, country, language):
     if getattr(client, "responses", None) is not None:
         try:
             web_response = client.responses.create(
-                model="gpt-4o",
+                model="gpt-4.1",
                 input=formatted_prompt,
                 tools=[{"type": "web_search"}],
             )
@@ -304,7 +304,7 @@ def generate_brand_data(brand, country, language):
     if content is None:
         try:
             response = client.chat.completions.create(
-                model="gpt-4o",
+                model="gpt-4.1",
                 messages=[{"role": "user", "content": formatted_prompt}],
                 temperature=0.4,
             )
@@ -353,7 +353,7 @@ def generate_industry_data(brand, description, country, language):
     if getattr(client, "responses", None) is not None:
         try:
             web_response = client.responses.create(
-                model="gpt-4o",
+                model="gpt-4.1",
                 input=formatted_prompt,
                 tools=[{"type": "web_search"}],
             )
@@ -366,7 +366,7 @@ def generate_industry_data(brand, description, country, language):
     if content is None:
         try:
             response = client.chat.completions.create(
-                model="gpt-4o",
+                model="gpt-4.1",
                 messages=[{"role": "user", "content": formatted_prompt}],
                 temperature=0.4,
             )
@@ -406,7 +406,7 @@ def generate_topics(industry, industry_description, country, language):
     
     try:
         response = client.chat.completions.create(
-            model="gpt-4o",
+            model="gpt-4.1",
             messages=[{"role": "user", "content": formatted_prompt}],
             temperature=0.4,
         )
@@ -445,7 +445,7 @@ def generate_scenarios(industry, industry_description, topic, country, language)
     
     try:
         response = client.chat.completions.create(
-            model="gpt-4o",
+            model="gpt-4.1",
             messages=[{"role": "user", "content": formatted_prompt}],
             temperature=0.4,
         )
