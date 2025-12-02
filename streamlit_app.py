@@ -5,16 +5,15 @@ Run with: streamlit run app.py
 
 import json
 import os
-
+from datetime import datetime
 import streamlit as st
-# from dotenv import load_dotenv
+from dotenv import load_dotenv
 from openai import OpenAI
 from streamlit_local_storage import LocalStorage
 
-# load_dotenv()
+load_dotenv()
 
 localS = LocalStorage()  # this is a Streamlit component
-
 
 DEFAULT_PROMPTS = [
     {
@@ -24,13 +23,14 @@ DEFAULT_PROMPTS = [
             "This is a real brand, so you should go online and look it up before answering.\n"
             "If you can't find the exact URL, return the closest one.\n\n"
             "Brand name: {brand}\n"
+            "{hint}\n\n"
             "Return a JSON object:```json\n"
             "{\n"
             "    \"brand_url\": \"...\",\n"
             "    \"brand_description\": \"...\"\n"
             "}\n"
             "```\n\n"
-            "Write both fields in {language}, as perceived from {country}."
+            "Write both fields in {language}, as perceived from {city}{country}."
         ),
     },
     {
@@ -50,7 +50,7 @@ DEFAULT_PROMPTS = [
             "Focus on the *primary industry*, not the brand itself.\n"
             "The response *must not include any brand, company, or product names*,  only general industry terms and descriptions.\n"
             "When multiple categories apply, choose the most specific one that directly reflects the brand’s core activity.\n"
-            "Write both fields in {language}, as perceived from {country}."
+            "Write both fields in {language}, as perceived from {city}{country}."
         ),
     },
     {
@@ -67,7 +67,7 @@ DEFAULT_PROMPTS = [
             "```\n\n"
             "Each topic should be *concise (a few words)*, realistic, and relevant to the industry and country context.\n"
             "Do *not* include brand or company names.\n"
-            "Write the topic names in {language}, as perceived from {country}."
+            "Write the topic names in {language}, as perceived from {city}{country}."
         ),
     },
     {
@@ -75,7 +75,7 @@ DEFAULT_PROMPTS = [
         "text": (
             "Generate 4 realistic questions a person might ask a GPT related to this industry and topic.\n"
             "Their goal is to get a product recommendation, not to explore the space in general.\n"
-            "If you think it's needed, include the fact that they are from {country} in the question.\n\n"
+            "If you think it's needed, include the fact that they are from {city}{country} in the question.\n\n"
             "Industry: {industry}\n"
             "Topic: {topic}\n"
             "Industry description:\n"
@@ -87,7 +87,7 @@ DEFAULT_PROMPTS = [
             "```\n\n"
             "Each question should:\n"
             "•	Be natural and relevant to the topic and industry.\n"
-            "•	Reflect what people from {country} might genuinely ask a GPT.\n"
+            "•	Reflect what people from {city}{country} might genuinely ask a GPT.\n"
             "•	Be written in {language}.\n"
             "•	Avoid any brand or company names.\n"
             "•	Be short and conversational, as if typed into ChatGPT or another assistant."
@@ -119,8 +119,18 @@ def get_stored_prompts():
         prompts.append({"label": label, "text": text})
     return prompts or None
 
-
 def init_state():
+    lastLoad = localS.getItem("last_load")
+    now = datetime.now().timestamp()
+    if lastLoad is not None:
+        diff = now - lastLoad
+        if diff > 60*60: # 1 hour
+            localS.deleteAll()
+    else:
+        localS.deleteAll()
+
+    localS.setItem("last_load", now, "set_last_load")
+
     stored_prompts = get_stored_prompts()
     base_prompts = stored_prompts or DEFAULT_PROMPTS
 
@@ -270,8 +280,10 @@ def handle_prompt_change(idx):
     st.session_state.prompts[idx]["text"] = st.session_state.get(key, "")
     persist_prompts()
 
+def generate_brand_data(brand, hint, city, country, language):
+    if len(city) > 0:
+        city += ", "
 
-def generate_brand_data(brand, country, language):
     client = get_openai_client()
     if client is None:
         return None
@@ -284,6 +296,8 @@ def generate_brand_data(brand, country, language):
     formatted_prompt = fill_prompt(
         base_prompt,
         brand=brand,
+        hint=hint,
+        city=city,
         country=country,
         language=language,
     )
@@ -333,7 +347,10 @@ def generate_brand_data(brand, country, language):
 
     return {"brand_url": brand_url, "brand_description": brand_description}
 
-def generate_industry_data(brand, description, country, language):
+def generate_industry_data(brand, description, city, country, language):
+    if len(city) > 0:
+        city += ", "
+
     client = get_openai_client()
     if client is None:
         return None
@@ -347,6 +364,7 @@ def generate_industry_data(brand, description, country, language):
         base_prompt,
         brand=brand,
         description=description,
+        city=city,
         country=country,
         language=language,
     )
@@ -394,7 +412,10 @@ def generate_industry_data(brand, description, country, language):
 
     return {"industry_name": industry_name, "industry_description": industry_description}
 
-def generate_topics(industry, industry_description, country, language):
+def generate_topics(industry, industry_description, city, country, language):
+    if len(city) > 0:
+        city += ", "
+
     client = get_openai_client()
     if client is None:
         return None
@@ -404,7 +425,14 @@ def generate_topics(industry, industry_description, country, language):
         st.error("Prompt 'Generate topics' not found.")
         return None
     
-    formatted_prompt = fill_prompt(base_prompt, industry=industry, industry_description=industry_description, country=country, language=language)
+    formatted_prompt = fill_prompt(
+        base_prompt, 
+        industry=industry, 
+        industry_description=industry_description, 
+        city=city,
+        country=country, 
+        language=language
+    )
     
     try:
         response = client.chat.completions.create(
@@ -433,7 +461,10 @@ def generate_topics(industry, industry_description, country, language):
 
     return {"topics": topics}
 
-def generate_scenarios(industry, industry_description, topic, country, language):    
+def generate_scenarios(industry, industry_description, topic, city, country, language):
+    if len(city) > 0:
+        city += ", "
+
     client = get_openai_client()
     if client is None:
         return None
@@ -443,7 +474,15 @@ def generate_scenarios(industry, industry_description, topic, country, language)
         st.error("Prompt 'Generate scenarios' not found.")
         return None
     
-    formatted_prompt = fill_prompt(base_prompt, industry=industry, industry_description=industry_description, topic=topic, country=country, language=language)
+    formatted_prompt = fill_prompt(
+        base_prompt, 
+        industry=industry, 
+        industry_description=industry_description, 
+        topic=topic, 
+        city=city,
+        country=country, 
+        language=language
+    )
     
     try:
         response = client.chat.completions.create(
@@ -548,6 +587,14 @@ def main():
     if brand_name != stored_brand_name:
         localS.setItem("brand_name", brand_name, key="set_brand_name")
 
+    stored_brand_hint = localS.getItem("brand_hint")
+    if stored_brand_hint is None:
+        stored_brand_hint = ""
+        localS.setItem("brand_hint", stored_brand_hint, key="set_brand_hint_default")
+    brand_hint = st.text_input("Brand hint", key="brand_hint", value=stored_brand_hint, placeholder="Optional. Write down anything to help us getter identify your brand.")
+    if brand_hint != stored_brand_hint:
+        localS.setItem("brand_hint", brand_hint, key="set_brand_hint")
+
     stored_country = localS.getItem("country")
     countries = [
         "United States",
@@ -570,6 +617,11 @@ def main():
         stored_country = "United Kingdom"
         localS.setItem("country", stored_country, key="set_country_default")
 
+    stored_city = localS.getItem("city")
+    if stored_city is None:
+        stored_city = ""
+        localS.setItem("city", stored_city, key="set_city_default")
+
     stored_language = localS.getItem("language")
     languages = [
         "English",
@@ -590,7 +642,7 @@ def main():
         stored_language = "English"
         localS.setItem("language", stored_language, key="set_language_default")
 
-    col1, col2 = st.columns(2)
+    col1, col2, col3 = st.columns(3)
     with col1:
         selected_country = st.selectbox(
             "Country",
@@ -601,6 +653,10 @@ def main():
         if selected_country != stored_country:
             localS.setItem("country", selected_country, key="set_country")
     with col2:
+        city = st.text_input("City", key="city", value=stored_city, placeholder="Optional: City name")
+        if city != stored_city:
+            localS.setItem("city", city, key="set_city")
+    with col3:
         selected_language = st.selectbox(
             "Language",
             languages,
@@ -616,6 +672,8 @@ def main():
         with st.spinner("Generating brand data..."):
             result = generate_brand_data(
                 brand=brand_name,
+                hint=brand_hint,
+                city=city,
                 country=selected_country,
                 language=selected_language,
             )
@@ -634,6 +692,7 @@ def main():
             result = generate_industry_data(
                 brand=brand_name,
                 description=st.session_state.brand_description,
+                city=city,
                 country=selected_country,
                 language=selected_language,
             )
@@ -661,6 +720,7 @@ def main():
             result = generate_topics(
                 industry=st.session_state.industry,
                 industry_description=st.session_state.industry_description,
+                city=city,
                 country=selected_country,
                 language=selected_language,
             )
@@ -683,6 +743,7 @@ def main():
                 industry=st.session_state.industry,
                 industry_description=st.session_state.industry_description,
                 topic=st.session_state.topics.split("\n")[0],
+                city=city,
                 country=selected_country,
                 language=selected_language,
             )
