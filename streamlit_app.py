@@ -323,6 +323,7 @@ def generate_brand_data(brand, hint, city, country, language):
                 model="gpt-4.1",
                 messages=[{"role": "user", "content": formatted_prompt}],
                 temperature=0.4,
+                response_format={"type": "json_object"},
             )
         except Exception as exc:
             st.error(f"OpenAI request failed: {exc}")
@@ -389,6 +390,7 @@ def generate_industry_data(brand, description, city, country, language):
                 model="gpt-4.1",
                 messages=[{"role": "user", "content": formatted_prompt}],
                 temperature=0.4,
+                response_format={"type": "json_object"},
             )
         except Exception as exc:
             st.error(f"OpenAI request failed: {exc}")
@@ -439,6 +441,7 @@ def generate_topics(industry, industry_description, city, country, language):
             model="gpt-4.1",
             messages=[{"role": "user", "content": formatted_prompt}],
             temperature=0.4,
+            response_format={"type": "json_object"},
         )
     except Exception as exc:
         st.error(f"OpenAI request failed: {exc}")
@@ -489,6 +492,7 @@ def generate_scenarios(industry, industry_description, topic, city, country, lan
             model="gpt-4.1",
             messages=[{"role": "user", "content": formatted_prompt}],
             temperature=0.4,
+            response_format={"type": "json_object"},
         )
     except Exception as exc:
         st.error(f"OpenAI request failed: {exc}")
