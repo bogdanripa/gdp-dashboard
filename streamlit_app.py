@@ -605,6 +605,8 @@ def main():
         "United Kingdom",
         "Romania",
         "Canada",
+        "Croatia",
+        "Kazakhstan",
         "Australia",
         "Germany",
         "France",
