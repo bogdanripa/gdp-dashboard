@@ -6,6 +6,8 @@ Run with: streamlit run app.py
 import json
 import os
 from datetime import datetime
+import re
+import requests
 import streamlit as st
 from dotenv import load_dotenv
 from openai import OpenAI
@@ -199,6 +201,119 @@ def fill_prompt(template, **fields):
     for key, value in fields.items():
         result = result.replace(f"{{{key}}}", value)
     return result
+
+
+def normalize_country_name(country):
+    """Map common country codes to display names and trim whitespace."""
+    if not country:
+        return None
+    country = country.strip()
+    country_code_map = {
+        "US": "United States",
+        "USA": "United States",
+        "UK": "United Kingdom",
+        "GB": "United Kingdom",
+        "GBR": "United Kingdom",
+        "CA": "Canada",
+        "AU": "Australia",
+        "DE": "Germany",
+        "FR": "France",
+        "ES": "Spain",
+        "IT": "Italy",
+        "NL": "Netherlands",
+        "SE": "Sweden",
+        "BR": "Brazil",
+        "IN": "India",
+        "JP": "Japan",
+        "SG": "Singapore",
+        "RO": "Romania",
+    }
+    return country_code_map.get(country.upper(), country)
+
+
+def normalize_language_name(language):
+    """Map language codes/locales (or comma-separated lists) to our dropdown labels."""
+    if not language:
+        return None
+    # Handle comma-separated strings like "ar-AE,fa,en,hi,ur" from providers.
+    if isinstance(language, str) and ("," in language or ";" in language):
+        parts = re.split(r"[;,]", language)
+        for part in parts:
+            normalized = normalize_language_name(part)
+            if normalized:
+                return normalized
+        return None
+
+    language = language.strip()
+    lower_lang = language.lower()
+
+    code_map = {
+        "ar": "Arabic",
+        "ar-ae": "Arabic",
+        "ar_ae": "Arabic",
+        "ar-eg": "Arabic",
+        "ar_eg": "Arabic",
+        "en": "English",
+        "en-us": "English",
+        "en-gb": "English",
+        "es": "Spanish",
+        "fr": "French",
+        "de": "German",
+        "it": "Italian",
+        "nl": "Dutch",
+        "sv": "Swedish",
+        "pt": "Portuguese",
+        "pt-br": "Portuguese",
+        "ro": "Romanian",
+        "hi": "Hindi",
+        "ja": "Japanese",
+        "zh": "Chinese",
+        "ko": "Korean",
+    }
+
+    if lower_lang in code_map:
+        return code_map[lower_lang]
+
+    # Fallback to primary subtag (e.g., "ar-AE" -> "ar")
+    base = re.split(r"[-_]", lower_lang)[0]
+    return code_map.get(base, language)
+
+
+@st.cache_data(show_spinner=False, ttl=3600)
+def infer_user_location():
+    """Best-effort IP-based geolocation for default city/country/language."""
+    providers = [
+        ("https://ipapi.co/json/", "country_name", "city", "languages"),
+        ("https://ipwho.is/", "country", "city", "languages"),
+    ]
+    for url, country_key, city_key, lang_key in providers:
+        try:
+            response = requests.get(url, timeout=2)
+        except Exception:
+            continue
+        if not response.ok:
+            continue
+        try:
+            data = response.json()
+        except Exception:
+            continue
+        country = normalize_country_name(data.get(country_key) or data.get("country_name") or data.get("country"))
+        city = data.get(city_key) or data.get("city")
+        langs = data.get(lang_key) or data.get("languages")
+        language_raw = None
+        if isinstance(langs, list) and langs:
+            for item in langs:
+                normalized = normalize_language_name(item)
+                if normalized:
+                    language_raw = normalized
+                    break
+            if language_raw is None:
+                language_raw = langs[0]
+        elif isinstance(langs, str):
+            language_raw = langs
+        if country or city or language_raw:
+            return {"country": country, "city": city, "language": language_raw}
+    return None
 
 
 def get_openai_client():
@@ -582,7 +697,7 @@ def main():
     stored_brand_name = localS.getItem("brand_name")
     if stored_brand_name is None:
         stored_brand_name = ""
-    brand_name = st.text_input("Brand name", key="brand_name", value=stored_brand_name, placeholder="e.g. Acme Inc.")
+    brand_name = st.text_input("Brand name", key="brand_name", value=stored_brand_name, placeholder="Acme Inc.")
     if brand_name != stored_brand_name:
         localS.setItem("brand_name", brand_name, key="set_brand_name")
 
@@ -600,59 +715,99 @@ def main():
     if brand_hint != stored_brand_hint:
         localS.setItem("brand_hint", brand_hint, key="set_brand_hint")
 
-    stored_country = localS.getItem("country")
+    location_guess = infer_user_location()
+    inferred_country = normalize_country_name(location_guess.get("country")) if location_guess else None
+    inferred_city = location_guess.get("city") if location_guess else None
+    inferred_language = normalize_language_name(location_guess.get("language")) if location_guess else None
+
+    stored_country = normalize_country_name(localS.getItem("country"))
     countries = [
-        "United States",
-        "United Kingdom",
-        "Romania",
-        "Canada",
         "Australia",
-        "Germany",
-        "France",
-        "Spain",
-        "Italy",
-        "Netherlands",
-        "Sweden",
         "Brazil",
+        "Canada",
+        "Croatia",
+        "France",
+        "Germany",
         "India",
+        "Italy",
         "Japan",
+        "Kazakhstan",
+        "Netherlands",
+        "Romania",
         "Singapore",
+        "Spain",
+        "Sweden",
+        "United Kingdom",
+        "United States",
     ]
-    if stored_country not in countries:
-        stored_country = "United Kingdom"
-        localS.setItem("country", stored_country, key="set_country_default")
+    country_options = countries.copy()
+    for candidate in (stored_country, inferred_country):
+        if candidate and candidate not in country_options:
+            country_options.insert(0, candidate)
+
+    if stored_country is None:
+        if inferred_country:
+            stored_country = inferred_country
+            localS.setItem("country", stored_country, key="set_country_inferred")
+        else:
+            stored_country = "United Kingdom"
+            localS.setItem("country", stored_country, key="set_country_default")
 
     stored_city = localS.getItem("city")
     if stored_city is None:
-        stored_city = ""
+        stored_city = inferred_city or ""
         localS.setItem("city", stored_city, key="set_city_default")
 
-    stored_language = localS.getItem("language")
+    stored_language = normalize_language_name(localS.getItem("language"))
     languages = [
+        "Arabic",
+        "Chinese",
+        "Croatian",
+        "Dutch",
         "English",
-        "Spanish",
         "French",
         "German",
+        "Hindi",
         "Italian",
-        "Dutch",
-        "Swedish",
+        "Japanese",
+        "Kazakh",
+        "Korean",
         "Portuguese",
         "Romanian",
-        "Hindi",
-        "Japanese",
-        "Chinese",
-        "Korean",
+        "Russian",
+        "Spanish",
+        "Swedish",
     ]
-    if stored_language not in languages:
-        stored_language = "English"
-        localS.setItem("language", stored_language, key="set_language_default")
+    clean_inferred_language = None
+    if inferred_language:
+        inferred_parts = re.split(r"[;,]", inferred_language) if isinstance(inferred_language, str) else [inferred_language]
+        for part in inferred_parts:
+            normalized = normalize_language_name(part)
+            if normalized and normalized in languages:
+                clean_inferred_language = normalized
+                break
+        if clean_inferred_language is None:
+            clean_inferred_language = normalize_language_name(inferred_language)
+
+    if clean_inferred_language and clean_inferred_language not in languages:
+        languages.insert(0, clean_inferred_language)
+    if stored_language is None:
+        if clean_inferred_language and clean_inferred_language in languages:
+            stored_language = clean_inferred_language
+            localS.setItem("language", stored_language, key="set_language_inferred")
+        else:
+            stored_language = "English"
+            localS.setItem("language", stored_language, key="set_language_default")
+    elif stored_language not in languages:
+        languages.insert(0, stored_language)
 
     col1, col2, col3 = st.columns(3)
     with col1:
+        country_index = country_options.index(stored_country) if stored_country in country_options else 0
         selected_country = st.selectbox(
             "Country",
-            countries,
-            index=countries.index(stored_country),
+            country_options,
+            index=country_index,
             key="country",
         )
         if selected_country != stored_country:
