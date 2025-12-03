@@ -19,14 +19,15 @@ DEFAULT_PROMPTS = [
     {
         "label": "Generate brand data",
         "text": (
-            "Find out the following brand's URL (homepage) and description.\n"
-            "This is a real brand, so you should go online and look it up before answering.\n"
-            "If you can't find the exact URL, return the closest one.\n\n"
+            "Go to the brand's official website ({brand_url}) and read it carefully.\n"
+            "Next - find out the brand description.\n"
+            "In the description also mention details about the brand's typical customer profiles.\n"
+            "\n"
             "Brand name: {brand}\n"
+            "Brand website: {brand_url}\n"
             "{hint}\n\n"
             "Return a JSON object:```json\n"
             "{\n"
-            "    \"brand_url\": \"...\",\n"
             "    \"brand_description\": \"...\"\n"
             "}\n"
             "```\n\n"
@@ -36,7 +37,9 @@ DEFAULT_PROMPTS = [
     {
         "label": "Infer industry",
         "text": (
-            "Identify the most specific industry category this brand operates in.\n\n"
+            "Identify the most specific industry category this brand operates in.\n"
+            "In the description also mention details about the typical customer profiles.\n"
+            "\n"
             "Brand name: {brand}\n"
             "Brand description:\n"
             "{description}\n\n"
@@ -56,7 +59,7 @@ DEFAULT_PROMPTS = [
     {
         "label": "Generate topics", 
         "text": (
-            "List 3 short, relevant topics people might discuss with GPTs about this industry, as they look for product recomandations in this space.\n\n"
+            "List 3 short, relevant topics people might discuss with GPTs about this industry, as they look for product or services recommendations in this space.\n"
             "Industry: {industry}\n"
             "Industry description:\n"
             "{industry_description}\n\n"
@@ -141,14 +144,7 @@ def init_state():
         key = f"prompt_{idx}"
         if key not in st.session_state:
             st.session_state[key] = prompt["text"]
-    
-    stored_brand_url = localS.getItem("brand_url")
-    if stored_brand_url is None:
-        stored_brand_url = "To Be Generated"
-        localS.setItem("brand_url", stored_brand_url, key="set_brand_url_default")
-    if "brand_url" not in st.session_state:
-        st.session_state.brand_url = stored_brand_url
-    
+
     stored_brand_description = localS.getItem("brand_description")
     if stored_brand_description is None:
         stored_brand_description = "To Be Generated"
@@ -280,7 +276,7 @@ def handle_prompt_change(idx):
     st.session_state.prompts[idx]["text"] = st.session_state.get(key, "")
     persist_prompts()
 
-def generate_brand_data(brand, hint, city, country, language):
+def generate_brand_data(brand, brand_url, hint, city, country, language):
     if len(city) > 0:
         city += ", "
 
@@ -296,6 +292,7 @@ def generate_brand_data(brand, hint, city, country, language):
     formatted_prompt = fill_prompt(
         base_prompt,
         brand=brand,
+        brand_url=brand_url,
         hint=hint,
         city=city,
         country=country,
@@ -340,13 +337,12 @@ def generate_brand_data(brand, hint, city, country, language):
         st.error("Could not parse brand data from the OpenAI response.")
         return None
 
-    brand_url = parsed.get("brand_url")
     brand_description = parsed.get("brand_description")
-    if not brand_url or not brand_description:
-        st.error("OpenAI response did not include brand_url and brand_description.")
+    if not brand_description:
+        st.error("OpenAI response did not include brand_description.")
         return None
 
-    return {"brand_url": brand_url, "brand_description": brand_description}
+    return {"brand_description": brand_description}
 
 def generate_industry_data(brand, description, city, country, language):
     if len(city) > 0:
@@ -440,7 +436,7 @@ def generate_topics(industry, industry_description, city, country, language):
         response = client.chat.completions.create(
             model="gpt-4.1",
             messages=[{"role": "user", "content": formatted_prompt}],
-            temperature=0.4,
+            temperature=1,
             response_format={"type": "json_object"},
         )
     except Exception as exc:
@@ -585,16 +581,21 @@ def main():
 
     stored_brand_name = localS.getItem("brand_name")
     if stored_brand_name is None:
-        stored_brand_name = "NatWest"
-        localS.setItem("brand_name", stored_brand_name, key="set_brand_name_default")
-    brand_name = st.text_input("Brand name", key="brand_name", value=stored_brand_name, placeholder="Enter brand name")
+        stored_brand_name = ""
+    brand_name = st.text_input("Brand name", key="brand_name", value=stored_brand_name, placeholder="e.g. Acme Inc.")
     if brand_name != stored_brand_name:
         localS.setItem("brand_name", brand_name, key="set_brand_name")
+
+    stored_brand_url = localS.getItem("brand_url")
+    if stored_brand_url is None:
+        stored_brand_url = ""
+    brand_url = st.text_input("Brand URL", key="brand_url", value=stored_brand_url, placeholder="https://acme.inc/")
+    if brand_url != stored_brand_url:
+        localS.setItem("brand_url", brand_url, key="set_brand_url")
 
     stored_brand_hint = localS.getItem("brand_hint")
     if stored_brand_hint is None:
         stored_brand_hint = ""
-        localS.setItem("brand_hint", stored_brand_hint, key="set_brand_hint_default")
     brand_hint = st.text_input("Brand hint", key="brand_hint", value=stored_brand_hint, placeholder="Optional. Write down anything to help us getter identify your brand.")
     if brand_hint != stored_brand_hint:
         localS.setItem("brand_hint", brand_hint, key="set_brand_hint")
@@ -605,8 +606,6 @@ def main():
         "United Kingdom",
         "Romania",
         "Canada",
-        "Croatia",
-        "Kazakhstan",
         "Australia",
         "Germany",
         "France",
@@ -639,9 +638,6 @@ def main():
         "Swedish",
         "Portuguese",
         "Romanian",
-        "Croatian",
-        "Kazakh",
-        "Russian",
         "Hindi",
         "Japanese",
         "Chinese",
@@ -681,19 +677,21 @@ def main():
         with st.spinner("Generating brand data..."):
             result = generate_brand_data(
                 brand=brand_name,
+                brand_url=brand_url,
                 hint=brand_hint,
                 city=city,
                 country=selected_country,
                 language=selected_language,
             )
         if result:
-            st.session_state.brand_url = result["brand_url"]
             st.session_state.brand_description = result["brand_description"]
-            localS.setItem("brand_url", result["brand_url"], key="set_brand_url")
             localS.setItem("brand_description", result["brand_description"], key="set_brand_description")
 
-    st.text_input("Brand URL", key="brand_url")
-    st.text_area("Brand description", key="brand_description", height=120)
+    st.text_area(
+        "Brand description",
+        key="brand_description",
+        height=120,
+    )
 
     st.divider()
     if st.button("Generate Industry Data", type="primary"):
